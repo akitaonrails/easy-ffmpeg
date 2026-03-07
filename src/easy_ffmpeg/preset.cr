@@ -110,20 +110,30 @@ module EasyFfmpeg
     end
 
     def self.streaming_config(format : String) : PresetConfig
-      video_codec = format == "webm" ? "libvpx-vp9" : "libx264"
+      video_codec = if format == "webm"
+                      "libvpx-vp9"
+                    elsif format == "mp4" || format == "matroska" || format == "mov" || format == "mpegts"
+                      "libx265"
+                    else
+                      "libx264"
+                    end
       audio_codec = format == "webm" ? "libopus" : "aac"
 
-      video_args = if video_codec == "libx264"
-                     ["-crf", "22", "-preset", "medium", "-profile:v", "high", "-level", "4.1",
+      video_args = case video_codec
+                   when "libx265"
+                     ["-crf", "18", "-preset", "medium",
                       "-g", "48", "-keyint_min", "48"]
+                   when "libvpx-vp9"
+                     ["-crf", "24", "-b:v", "0", "-g", "48", "-keyint_min", "48"]
                    else
-                     ["-crf", "32", "-b:v", "0", "-g", "48", "-keyint_min", "48"]
+                     ["-crf", "18", "-preset", "medium", "-profile:v", "high",
+                      "-g", "48", "-keyint_min", "48"]
                    end
 
       audio_args = if audio_codec == "aac"
-                     ["-b:a", "192k"]
+                     ["-b:a", "256k"]
                    else
-                     ["-b:a", "128k"]
+                     ["-b:a", "192k"]
                    end
 
       new(

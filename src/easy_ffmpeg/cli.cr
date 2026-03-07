@@ -3,6 +3,11 @@ require "option_parser"
 module EasyFfmpeg
   class CLI
     def self.run
+      if ARGV.empty? && STDIN.tty?
+        Interactive.run
+        return
+      end
+
       Display.setup
 
       preset = Preset::Default
@@ -27,7 +32,7 @@ module EasyFfmpeg
 
         parser.on("--web", "Optimize for web embedding (H.264, AAC, faststart)") { preset = Preset::Web }
         parser.on("--mobile", "Optimize for mobile (H.264 720p, AAC stereo)") { preset = Preset::Mobile }
-        parser.on("--streaming", "Optimize for streaming (H.264, 2s keyframes, faststart)") { preset = Preset::Streaming }
+        parser.on("--streaming", "Consumer-friendly quality (H.265, Netflix/YouTube-like)") { preset = Preset::Streaming }
         parser.on("--compress", "Reduce file size (H.265, CRF 28)") { preset = Preset::Compress }
 
         parser.separator ""
@@ -245,7 +250,7 @@ module EasyFfmpeg
       puts "  easy-ffmpeg movie.mkv mp4 --web --dry-run"
     end
 
-    private def self.check_command(name : String) : Bool
+    def self.check_command(name : String) : Bool
       status = Process.run("which", args: [name], output: Process::Redirect::Close, error: Process::Redirect::Close)
       status.success?
     end
