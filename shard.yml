@@ -1,0 +1,13 @@
+name: easy_ffmpeg
+version: 0.1.0
+
+authors:
+  - AkitaOnRails <fabioakita@gmail.com>
+
+targets:
+  easy-ffmpeg:
+    main: src/easy_ffmpeg.cr
+
+crystal: '>= 1.19.1'
+
+license: MIT
