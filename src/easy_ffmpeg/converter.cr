@@ -8,7 +8,25 @@ module EasyFfmpeg
     def build_args : Array(String)
       args = ["-hide_banner", "-v", "error", "-stats_period", "0.5", "-progress", "pipe:1"]
       args << "-y" # overwrite (we check before reaching here)
+
+      # Trim: -ss before -i for fast seeking
+      if ss = plan.start_time
+        args << "-ss" << format_ffmpeg_time(ss)
+      end
+
       args << "-i" << plan.input.path
+
+      # Trim: -to / -t after -i (relative to start)
+      if et = plan.end_time
+        if ss = plan.start_time
+          # -to is relative to -ss when -ss is before -i, use -t instead
+          args << "-t" << format_ffmpeg_time(et - ss)
+        else
+          args << "-to" << format_ffmpeg_time(et)
+        end
+      elsif dur = plan.duration
+        args << "-t" << format_ffmpeg_time(dur)
+      end
 
       # Map non-dropped streams
       mapped = plan.mapped_streams
@@ -61,9 +79,16 @@ module EasyFfmpeg
       args
     end
 
+    private def format_ffmpeg_time(seconds : Float64) : String
+      h = (seconds / 3600).to_i
+      m = ((seconds % 3600) / 60).to_i
+      s = seconds % 60
+      "%02d:%02d:%06.3f" % {h, m, s}
+    end
+
     def run : Bool
       args = build_args
-      total_duration = plan.input.format.duration
+      total_duration = plan.effective_duration
       start_time = Time.instant
 
       process = Process.new(

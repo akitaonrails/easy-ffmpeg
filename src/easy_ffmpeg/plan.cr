@@ -27,13 +27,30 @@ module EasyFfmpeg
     getter global_args : Array(String)
     getter video_filters : Array(String)
     getter is_remux_only : Bool
+    getter start_time : Float64?
+    getter end_time : Float64?
+    getter duration : Float64?
 
-    def initialize(@input, @output_path, @target_format, @preset)
+    def initialize(@input, @output_path, @target_format, @preset,
+                   @start_time = nil, @end_time = nil, @duration = nil)
       @stream_plans = [] of StreamPlan
       @global_args = [] of String
       @video_filters = [] of String
       @is_remux_only = false
       build
+    end
+
+    # Effective duration of output (accounting for trim)
+    def effective_duration : Float64
+      total = input.format.duration
+      ss = start_time || 0.0
+      if d = duration
+        d
+      elsif et = end_time
+        et - ss
+      else
+        total - ss
+      end
     end
 
     def mapped_streams : Array(StreamPlan)

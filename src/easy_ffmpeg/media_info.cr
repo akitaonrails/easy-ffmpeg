@@ -271,4 +271,38 @@ module EasyFfmpeg
     s = total % 60
     "%d:%02d:%02d" % {h, m, s}
   end
+
+  # Parses user-provided time strings into seconds.
+  # Supported formats:
+  #   90        → 90.0 (plain seconds)
+  #   1:31      → 91.0 (mm:ss)
+  #   1:31.500  → 91.5 (mm:ss.ms)
+  #   1:02:30   → 3750.0 (hh:mm:ss)
+  #   1:02:30.5 → 3750.5 (hh:mm:ss.ms)
+  def self.parse_time(input : String) : Float64?
+    input = input.strip
+    return nil if input.empty?
+
+    parts = input.split(":")
+    case parts.size
+    when 1
+      # Plain seconds: "90" or "90.5"
+      parts[0].to_f64?
+    when 2
+      # mm:ss or mm:ss.xxx
+      mm = parts[0].to_i64?
+      ss = parts[1].to_f64?
+      return nil unless mm && ss
+      mm * 60.0 + ss
+    when 3
+      # hh:mm:ss or hh:mm:ss.xxx
+      hh = parts[0].to_i64?
+      mm = parts[1].to_i64?
+      ss = parts[2].to_f64?
+      return nil unless hh && mm && ss
+      hh * 3600.0 + mm * 60.0 + ss
+    else
+      nil
+    end
+  end
 end

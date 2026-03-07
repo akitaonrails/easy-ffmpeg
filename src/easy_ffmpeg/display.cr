@@ -79,6 +79,22 @@ module EasyFfmpeg
         label("Filters", plan.video_filters.join(", "))
       end
 
+      if plan.start_time || plan.end_time || plan.duration
+        trim_parts = [] of String
+        if ss = plan.start_time
+          trim_parts << "from #{EasyFfmpeg.format_duration_timestamp(ss)}"
+        end
+        if et = plan.end_time
+          trim_parts << "to #{EasyFfmpeg.format_duration_timestamp(et)}"
+        end
+        if dur = plan.duration
+          trim_parts << "duration #{EasyFfmpeg.format_duration(dur)}"
+        end
+        effective = plan.effective_duration
+        trim_parts << "(#{EasyFfmpeg.format_duration(effective)})"
+        label("Trim", trim_parts.join(" "))
+      end
+
       puts ""
     end
 
