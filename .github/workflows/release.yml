@@ -1,0 +1,81 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            arch: amd64
+            target: linux-amd64
+          - os: ubuntu-24.04-arm
+            arch: arm64
+            target: linux-arm64
+          - os: macos-13
+            arch: amd64
+            target: darwin-amd64
+          - os: macos-14
+            arch: arm64
+            target: darwin-arm64
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Linux: static build via Alpine Docker
+      - name: Build static binary (Linux)
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          docker run --rm -v "$PWD":/app -w /app crystallang/crystal:1.19.1-alpine \
+            crystal build src/easy_ffmpeg.cr -o bin/easy-ffmpeg --release --no-debug --static
+
+      # macOS: native build
+      - name: Install Crystal (macOS)
+        if: startsWith(matrix.os, 'macos')
+        uses: crystal-lang/install-crystal@v1
+        with:
+          crystal: "1.19.1"
+
+      - name: Build binary (macOS)
+        if: startsWith(matrix.os, 'macos')
+        run: crystal build src/easy_ffmpeg.cr -o bin/easy-ffmpeg --release --no-debug
+
+      - name: Rename binary
+        run: mv bin/easy-ffmpeg bin/easy-ffmpeg-${{ matrix.target }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: easy-ffmpeg-${{ matrix.target }}
+          path: bin/easy-ffmpeg-${{ matrix.target }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Make binaries executable
+        run: chmod +x artifacts/*
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          sha256sum * > ../checksums.txt
+          mv ../checksums.txt SHA256SUMS.txt
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            artifacts/*

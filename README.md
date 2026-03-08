@@ -18,8 +18,22 @@ A smart CLI wrapper around ffmpeg for video conversion, remuxing, and image sequ
 
 ## Installation
 
+### Quick install
+
 ```sh
-git clone https://github.com/your-github-user/easy-ffmpeg.git
+curl -fsSL https://raw.githubusercontent.com/akitaonrails/easy-ffmpeg/main/install.sh | sh
+```
+
+Pre-built binaries are available for Linux (x86_64, arm64) and macOS (Intel, Apple Silicon).
+
+### Download from GitHub Releases
+
+Grab the binary for your platform from the [latest release](https://github.com/akitaonrails/easy-ffmpeg/releases/latest), make it executable, and move it to your `$PATH`.
+
+### Build from source
+
+```sh
+git clone https://github.com/akitaonrails/easy-ffmpeg.git
 cd easy-ffmpeg
 crystal build src/easy_ffmpeg.cr -o bin/easy-ffmpeg --release
 ```
@@ -185,7 +199,7 @@ crystal build src/easy_ffmpeg.cr -o bin/easy-ffmpeg
 
 ## Contributing
 
-1. Fork it (<https://github.com/your-github-user/easy-ffmpeg/fork>)
+1. Fork it (<https://github.com/akitaonrails/easy-ffmpeg/fork>)
 2. Create your feature branch (`git checkout -b my-new-feature`)
 3. Commit your changes (`git commit -am 'Add some feature'`)
 4. Push to the branch (`git push origin my-new-feature`)
@@ -193,4 +207,4 @@ crystal build src/easy_ffmpeg.cr -o bin/easy-ffmpeg
 
 ## Contributors
 
-- [AkitaOnRails](https://github.com/your-github-user) - creator and maintainer
+- [AkitaOnRails](https://github.com/akitaonrails) - creator and maintainer
