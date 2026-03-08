@@ -1,4 +1,7 @@
 module EasyFfmpeg
+  SCALE_HEIGHTS  = {"2k" => 1440, "fullhd" => 1080, "hd" => 720, "retro" => 480, "icon" => 240}
+  ASPECT_RATIOS  = {"wide" => {16, 9}, "4:3" => {4, 3}, "8:7" => {8, 7}, "square" => {1, 1}, "tiktok" => {9, 16}}
+
   enum StreamAction
     Copy
     Transcode
@@ -30,9 +33,13 @@ module EasyFfmpeg
     getter start_time : Float64?
     getter end_time : Float64?
     getter duration : Float64?
+    getter scale : String?
+    getter aspect : String?
+    getter crop : Bool
 
     def initialize(@input, @output_path, @target_format, @preset,
-                   @start_time = nil, @end_time = nil, @duration = nil)
+                   @start_time = nil, @end_time = nil, @duration = nil,
+                   @scale = nil, @aspect = nil, @crop = false)
       @stream_plans = [] of StreamPlan
       @global_args = [] of String
       @video_filters = [] of String
@@ -85,8 +92,9 @@ module EasyFfmpeg
     end
 
     private def plan_video_streams(config : PresetConfig)
+      needs_filters = !scale.nil? || !aspect.nil?
       input.video_streams.each do |stream|
-        if config.force_transcode
+        if config.force_transcode || needs_filters
           plan_video_transcode(stream, config)
         elsif CodecSupport.video_compatible?(stream.codec_name, target_format)
           @stream_plans << StreamPlan.new(
@@ -110,15 +118,15 @@ module EasyFfmpeg
                default_quality_args(encoder)
              end
 
-      # Ensure compatible pixel format for h264/h265 profiles
-      if encoder == "libx264" || encoder == "libx265"
-        pix = stream.pix_fmt
-        if pix && !%w[yuv420p yuv420p10le].includes?(pix)
-          @video_filters << "format=yuv420p"
+      # 1. Scale filter (--scale overrides preset max_height)
+      if s = scale
+        target_h = SCALE_HEIGHTS[s]
+        if h = stream.height
+          if h > target_h
+            @video_filters << "scale=-2:#{target_h}"
+          end
         end
-      end
-
-      if max_h = config.max_height
+      elsif max_h = config.max_height
         if h = stream.height
           if h > max_h
             @video_filters << "scale=-2:#{max_h}"
@@ -126,7 +134,34 @@ module EasyFfmpeg
         end
       end
 
-      reason = config.force_transcode ? preset.to_s.downcase : "incompatible"
+      # 2. Pixel format for h264/h265
+      if encoder == "libx264" || encoder == "libx265"
+        pix = stream.pix_fmt
+        if pix && !%w[yuv420p yuv420p10le].includes?(pix)
+          @video_filters << "format=yuv420p"
+        end
+      end
+
+      # 3. Aspect ratio filter
+      if a = aspect
+        num, den = ASPECT_RATIOS[a]
+        if crop
+          @video_filters << "crop=min(iw\\,ih*#{num}/#{den}):min(ih\\,iw*#{den}/#{num})"
+        else
+          @video_filters << "pad=max(iw\\,ih*#{num}/#{den}):max(ih\\,iw*#{den}/#{num}):(ow-iw)/2:(oh-ih)/2:black"
+        end
+      end
+
+      reason = if !scale.nil? || !aspect.nil?
+                 parts = [] of String
+                 parts << "--scale #{scale}" if scale
+                 parts << "--aspect #{aspect}" if aspect
+                 parts.join(" ")
+               elsif config.force_transcode
+                 preset.to_s.downcase
+               else
+                 "incompatible"
+               end
 
       @stream_plans << StreamPlan.new(
         stream: stream,

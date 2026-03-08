@@ -176,7 +176,9 @@ module EasyFfmpeg
 
     def self.build_ffmpeg_args(seq : SequenceInfo, output_path : String,
                                fps : Int32, preset : Preset,
-                               target_format : String, force : Bool) : Array(String)
+                               target_format : String, force : Bool,
+                               scale : String? = nil, aspect : String? = nil,
+                               crop : Bool = false) : Array(String)
       is_gif = target_format == "gif"
       args = ["-hide_banner", "-v", "error", "-stats_period", "0.5", "-progress", "pipe:1"]
       args << "-y"
@@ -188,9 +190,35 @@ module EasyFfmpeg
 
       args << "-i" << seq.input_pattern.pattern
 
+      # Build shared scale/aspect filter fragments
+      extra_filters_pre = [] of String   # before format filter
+      extra_filters_post = [] of String  # after format filter
+
+      if s = scale
+        target_h = SCALE_HEIGHTS[s]
+        if seq.height > target_h
+          extra_filters_pre << "scale=-2:#{target_h}"
+        end
+      end
+
+      if a = aspect
+        num, den = ASPECT_RATIOS[a]
+        if crop
+          extra_filters_post << "crop=min(iw\\,ih*#{num}/#{den}):min(ih\\,iw*#{den}/#{num})"
+        else
+          extra_filters_post << "pad=max(iw\\,ih*#{num}/#{den}):max(ih\\,iw*#{den}/#{num}):(ow-iw)/2:(oh-ih)/2:black"
+        end
+      end
+
       if is_gif
         # High-quality GIF with palette generation
-        args << "-vf" << "split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse"
+        pre = extra_filters_pre + extra_filters_post
+        if pre.any?
+          prefix = pre.join(",") + ","
+        else
+          prefix = ""
+        end
+        args << "-vf" << "#{prefix}split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse"
       else
         # Video output
         config = PresetConfig.for(preset, target_format)
@@ -210,24 +238,28 @@ module EasyFfmpeg
           end
         end
 
+        # Build video filter chain: scale -> format -> aspect
+        filters = [] of String
+        filters.concat(extra_filters_pre)
+
         # Pixel format for h264/h265
         if encoder == "libx264" || encoder == "libx265"
-          filters = ["format=yuv420p"]
+          filters << "format=yuv420p"
+        end
 
-          # Apply max_height scaling if preset specifies it
+        # Apply max_height scaling from preset (only if --scale not set)
+        if scale.nil?
           if max_h = config.max_height
             if seq.height > max_h
-              filters << "scale=-2:#{max_h}"
+              filters.unshift("scale=-2:#{max_h}")
             end
           end
+        end
 
+        filters.concat(extra_filters_post)
+
+        if filters.any?
           args << "-vf" << filters.join(",")
-        else
-          if max_h = config.max_height
-            if seq.height > max_h
-              args << "-vf" << "scale=-2:#{max_h}"
-            end
-          end
         end
 
         # Faststart for mp4/mov
@@ -241,8 +273,11 @@ module EasyFfmpeg
     end
 
     def self.run(seq : SequenceInfo, output_path : String, fps : Int32,
-                 preset : Preset, target_format : String, force : Bool) : Bool
-      args = build_ffmpeg_args(seq, output_path, fps, preset, target_format, force)
+                 preset : Preset, target_format : String, force : Bool,
+                 scale : String? = nil, aspect : String? = nil,
+                 crop : Bool = false) : Bool
+      args = build_ffmpeg_args(seq, output_path, fps, preset, target_format, force,
+                               scale: scale, aspect: aspect, crop: crop)
       total_duration = seq.frame_count.to_f64 / fps
       start_time = Time.instant
 

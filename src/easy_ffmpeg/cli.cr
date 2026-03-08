@@ -19,6 +19,9 @@ module EasyFfmpeg
       end_time : Float64? = nil
       duration : Float64? = nil
       fps_override : Int32? = nil
+      scale : String? = nil
+      aspect : String? = nil
+      crop = false
       input_path : String? = nil
       target_ext : String? = nil
 
@@ -60,6 +63,21 @@ module EasyFfmpeg
           end
           fps_override = val
         end
+        parser.on("--scale NAME", "Scale resolution (2k, fullhd, hd, retro, icon)") do |s|
+          unless SCALE_HEIGHTS.has_key?(s)
+            Display.show_error("unknown scale '#{s}'. Valid options: #{SCALE_HEIGHTS.keys.join(", ")}")
+            exit 1
+          end
+          scale = s
+        end
+        parser.on("--aspect RATIO", "Aspect ratio (wide, 4:3, 8:7, square, tiktok)") do |a|
+          unless ASPECT_RATIOS.has_key?(a)
+            Display.show_error("unknown aspect ratio '#{a}'. Valid options: #{ASPECT_RATIOS.keys.join(", ")}")
+            exit 1
+          end
+          aspect = a
+        end
+        parser.on("--crop", "Crop to aspect ratio instead of padding") { crop = true }
         parser.on("-o PATH", "--output=PATH", "Custom output file path") { |p| custom_output = p }
         parser.on("--dry-run", "Print ffmpeg command without executing") { dry_run = true }
         parser.on("--force", "Overwrite output file if it exists") { force = true }
@@ -85,6 +103,12 @@ module EasyFfmpeg
         end
       end
 
+      # Validate --crop requires --aspect
+      if crop && aspect.nil?
+        Display.show_error("--crop requires --aspect")
+        exit 1
+      end
+
       # Validate input
       unless input = input_path
         Display.show_error("missing input file. Run with -h for help.")
@@ -105,7 +129,8 @@ module EasyFfmpeg
           exit 1
         end
 
-        run_image_sequence(input, ext, fps_override, preset, custom_output, dry_run, force)
+        run_image_sequence(input, ext, fps_override, preset, custom_output, dry_run, force,
+                           scale, aspect, crop)
         return
       end
 
@@ -202,7 +227,8 @@ module EasyFfmpeg
 
       # Build conversion plan
       plan = ConversionPlan.new(info, dest, target_format, preset,
-        start_time: start_time, end_time: end_time, duration: duration)
+        start_time: start_time, end_time: end_time, duration: duration,
+        scale: scale, aspect: aspect, crop: crop)
 
       # Apply --no-subs: override subtitle plans to Drop
       if no_subs
@@ -236,7 +262,8 @@ module EasyFfmpeg
 
     private def self.run_image_sequence(input : String, ext : String, fps_override : Int32?,
                                         preset : Preset, custom_output : String?,
-                                        dry_run : Bool, force : Bool)
+                                        dry_run : Bool, force : Bool,
+                                        scale : String?, aspect : String?, crop : Bool)
       is_gif = ext == ".gif"
 
       unless is_gif || CodecSupport.supported_output_format?(ext)
@@ -286,15 +313,18 @@ module EasyFfmpeg
         exit 1
       end
 
-      Display.show_image_sequence_info(seq, dest, fps, preset, target_format)
+      Display.show_image_sequence_info(seq, dest, fps, preset, target_format,
+                                       scale: scale, aspect: aspect, crop: crop)
 
       if dry_run
-        args = ImageSequence.build_ffmpeg_args(seq, dest, fps, preset, target_format, force)
+        args = ImageSequence.build_ffmpeg_args(seq, dest, fps, preset, target_format, force,
+                                               scale: scale, aspect: aspect, crop: crop)
         Display.show_dry_run(args)
         exit 0
       end
 
-      success = ImageSequence.run(seq, dest, fps, preset, target_format, force)
+      success = ImageSequence.run(seq, dest, fps, preset, target_format, force,
+                                   scale: scale, aspect: aspect, crop: crop)
       exit(success ? 0 : 1)
     end
 
@@ -336,6 +366,15 @@ module EasyFfmpeg
       puts ""
       puts "  # Mobile-friendly clip with custom output path"
       puts "  easy-ffmpeg movie.mkv mp4 --mobile --start 0:30 --end 2:00 -o clip.mp4"
+      puts ""
+      puts "  # Scale to 720p"
+      puts "  easy-ffmpeg movie.mkv mp4 --scale hd"
+      puts ""
+      puts "  # Pad to 16:9 aspect ratio (black bars)"
+      puts "  easy-ffmpeg movie.mkv mp4 --aspect wide"
+      puts ""
+      puts "  # Crop to square"
+      puts "  easy-ffmpeg movie.mkv mp4 --aspect square --crop"
       puts ""
       puts "  # Preview the ffmpeg command without running it"
       puts "  easy-ffmpeg movie.mkv mp4 --web --dry-run"

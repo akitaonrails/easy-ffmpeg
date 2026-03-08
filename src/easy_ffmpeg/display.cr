@@ -75,6 +75,17 @@ module EasyFfmpeg
         sub_idx += 1
       end
 
+      if s = plan.scale
+        height = SCALE_HEIGHTS[s]
+        label("Scale", "#{s} (#{height}p)")
+      end
+
+      if a = plan.aspect
+        num, den = ASPECT_RATIOS[a]
+        mode = plan.crop ? "crop" : "pad"
+        label("Aspect", "#{a} (#{num}:#{den}, #{mode})")
+      end
+
       if plan.video_filters.any?
         label("Filters", plan.video_filters.join(", "))
       end
@@ -199,7 +210,9 @@ module EasyFfmpeg
     # ── Image sequence ──
 
     def self.show_image_sequence_info(seq : ImageSequence::SequenceInfo, output_path : String,
-                                      fps : Int32, preset : Preset, target_format : String)
+                                      fps : Int32, preset : Preset, target_format : String,
+                                      scale : String? = nil, aspect : String? = nil,
+                                      crop : Bool = false)
       puts ""
       label("Input", "#{File.basename(seq.directory.rstrip("/"))}/ (#{seq.frame_count} frames, #{EasyFfmpeg.format_file_size(seq.total_size)})")
       label("Images", "#{seq.extension.lstrip('.')} #{seq.width}x#{seq.height}")
@@ -217,6 +230,17 @@ module EasyFfmpeg
         encoder = config.video_codec || CodecSupport::DEFAULT_VIDEO_CODEC[target_format]? || "libx264"
         preset_label = preset.default? ? "" : " (--#{preset.to_s.downcase})"
         label("Encode", "#{CodecSupport.codec_display_name(encoder)}#{preset_label}")
+      end
+
+      if s = scale
+        height = SCALE_HEIGHTS[s]
+        label("Scale", "#{s} (#{height}p)")
+      end
+
+      if a = aspect
+        num, den = ASPECT_RATIOS[a]
+        mode = crop ? "crop" : "pad"
+        label("Aspect", "#{a} (#{num}:#{den}, #{mode})")
       end
 
       label("FPS", "#{fps}fps -> #{EasyFfmpeg.format_duration(expected_duration)}")

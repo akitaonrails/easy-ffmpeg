@@ -89,6 +89,38 @@ easy-ffmpeg movie.mkv mp4 --mobile --start 0:30 --end 2:00 -o clip.mp4
 
 Time formats: `90` (seconds), `1:31` (mm:ss), `1:31.500` (mm:ss.ms), `1:02:30` (hh:mm:ss), `1:02:30.5` (hh:mm:ss.ms).
 
+### Scaling & Aspect Ratio
+
+**Scale to 720p:**
+
+```sh
+easy-ffmpeg movie.mkv mp4 --scale hd
+```
+
+**Pad to 16:9 (black bars):**
+
+```sh
+easy-ffmpeg movie.mkv mp4 --aspect wide
+```
+
+**Crop to square:**
+
+```sh
+easy-ffmpeg movie.mkv mp4 --aspect square --crop
+```
+
+**Scale and change aspect ratio:**
+
+```sh
+easy-ffmpeg movie.mkv mp4 --scale fullhd --aspect wide
+```
+
+Scale presets: `2k` (1440p), `fullhd` (1080p), `hd` (720p), `retro` (480p), `icon` (240p). Only downscales — skipped if the source is already at or below the target height.
+
+Aspect ratio presets: `wide` (16:9), `4:3`, `8:7`, `square` (1:1), `tiktok` (9:16). Default mode adds black bars (pad); use `--crop` to crop instead.
+
+Both `--scale` and `--aspect` work with image sequences and GIF output.
+
 ### Image Sequences
 
 Turn a directory of numbered images (PNG, JPG, BMP, TIFF, WebP) into a video or animated GIF.
@@ -125,6 +157,9 @@ Default frame rate is 24 fps for video and 10 fps for GIF. Override with `--fps`
 
 | Flag | Description |
 |---|---|
+| `--scale NAME` | Scale resolution: `2k`, `fullhd`, `hd`, `retro`, `icon` |
+| `--aspect RATIO` | Aspect ratio: `wide`, `4:3`, `8:7`, `square`, `tiktok` |
+| `--crop` | Crop to aspect ratio instead of padding (requires `--aspect`) |
 | `--fps N` | Frame rate for image sequences (1-120) |
 | `-o PATH` | Custom output file path |
 | `--dry-run` | Print the ffmpeg command without executing |
