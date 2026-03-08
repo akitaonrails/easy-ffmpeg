@@ -34,6 +34,7 @@ jobs:
       - name: Build static binary (Linux)
         if: startsWith(matrix.os, 'ubuntu')
         run: |
+          mkdir -p bin
           docker run --rm -v "$PWD":/app -w /app crystallang/crystal:1.19.1-alpine \
             crystal build src/easy_ffmpeg.cr -o bin/easy-ffmpeg --release --no-debug --static
 
