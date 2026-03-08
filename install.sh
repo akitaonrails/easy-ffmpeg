@@ -24,8 +24,7 @@ case "$(uname -m)" in
 esac
 
 BINARY="easy-ffmpeg-${OS}-${ARCH}"
-URL="https://github.com/${REPO}/releases/latest/download/${BINARY}"
-CHECKSUMS_URL="https://github.com/${REPO}/releases/latest/download/SHA256SUMS.txt"
+API_URL="https://api.github.com/repos/${REPO}/releases/latest"
 
 # Install directory
 if [ "$(id -u)" = "0" ]; then
@@ -35,21 +34,37 @@ else
   mkdir -p "$INSTALL_DIR"
 fi
 
-echo "Downloading easy-ffmpeg (${OS}/${ARCH})..."
-
-# Download binary and checksums
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
+# Resolve the exact release tag first so the install is explicit.
 if command -v curl >/dev/null 2>&1; then
-  curl -fsSL "$URL" -o "${TMPDIR}/${BINARY}"
-  curl -fsSL "$CHECKSUMS_URL" -o "${TMPDIR}/SHA256SUMS.txt"
+  curl -fsSL "$API_URL" -o "${TMPDIR}/release.json"
 elif command -v wget >/dev/null 2>&1; then
-  wget -qO "${TMPDIR}/${BINARY}" "$URL"
-  wget -qO "${TMPDIR}/SHA256SUMS.txt" "$CHECKSUMS_URL"
+  wget -qO "${TMPDIR}/release.json" "$API_URL"
 else
   echo "Error: curl or wget is required" >&2
   exit 1
+fi
+
+RELEASE_TAG=$(sed -n 's/^[[:space:]]*"tag_name":[[:space:]]*"\([^"]*\)",$/\1/p' "${TMPDIR}/release.json" | head -n 1)
+if [ -z "$RELEASE_TAG" ]; then
+  echo "Error: failed to resolve the latest release tag" >&2
+  exit 1
+fi
+
+URL="https://github.com/${REPO}/releases/download/${RELEASE_TAG}/${BINARY}"
+CHECKSUMS_URL="https://github.com/${REPO}/releases/download/${RELEASE_TAG}/SHA256SUMS.txt"
+
+echo "Downloading easy-ffmpeg ${RELEASE_TAG} (${OS}/${ARCH})..."
+
+# Download binary and checksums
+if command -v curl >/dev/null 2>&1; then
+  curl -fsSL "$URL" -o "${TMPDIR}/${BINARY}"
+  curl -fsSL "$CHECKSUMS_URL" -o "${TMPDIR}/SHA256SUMS.txt"
+else
+  wget -qO "${TMPDIR}/${BINARY}" "$URL"
+  wget -qO "${TMPDIR}/SHA256SUMS.txt" "$CHECKSUMS_URL"
 fi
 
 # Verify checksum
