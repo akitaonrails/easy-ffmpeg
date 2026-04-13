@@ -1,7 +1,8 @@
 require "./spec_helper"
 
 private def build_media_info(video_codec : String = "h264", audio_codec : String = "aac",
-                             video_height : Int32 = 1080, pix_fmt : String = "yuv420p",
+                             video_width : Int32 = 1920, video_height : Int32 = 1080,
+                             pix_fmt : String = "yuv420p",
                              audio_channels : Int32 = 2,
                              other_streams : Array(EasyFfmpeg::StreamInfo) = [] of EasyFfmpeg::StreamInfo)
   video_stream = EasyFfmpeg::StreamInfo.new(
@@ -9,7 +10,7 @@ private def build_media_info(video_codec : String = "h264", audio_codec : String
     codec_name: video_codec,
     codec_long_name: video_codec.upcase,
     codec_type: "video",
-    width: 1920,
+    width: video_width,
     height: video_height,
     frame_rate: 23.976,
     pix_fmt: pix_fmt,
@@ -158,6 +159,34 @@ describe EasyFfmpeg do
 
       art_plan.should_not be_nil
       art_plan.not_nil!.action.copy?.should be_true
+    end
+
+    it "adds scale filter to ensure even dimensions for libx264 when width is odd" do
+      info = build_media_info(video_codec: "vp8", video_width: 1057, video_height: 518)
+
+      plan = EasyFfmpeg::ConversionPlan.new(info, "out.mp4", "mp4", EasyFfmpeg::Preset::Default)
+
+      plan.video_plans.first.action.transcode?.should be_true
+      plan.video_filters.should contain("scale=trunc(iw/2)*2:trunc(ih/2)*2")
+    end
+
+    it "does not add even-dimension scale filter when dimensions are already even" do
+      info = build_media_info(video_codec: "vp8", video_width: 1920, video_height: 1080)
+
+      plan = EasyFfmpeg::ConversionPlan.new(info, "out.mp4", "mp4", EasyFfmpeg::Preset::Default)
+
+      plan.video_filters.any? { |f| f.includes?("trunc") }.should be_false
+    end
+
+    it "does not add even-dimension scale filter when a scale filter is already present" do
+      info = build_media_info(video_codec: "vp8", video_width: 1057, video_height: 2160)
+
+      plan = EasyFfmpeg::ConversionPlan.new(
+        info, "out.mp4", "mp4", EasyFfmpeg::Preset::Default, scale: "hd",
+      )
+
+      plan.video_filters.should contain("scale=-2:720")
+      plan.video_filters.any? { |f| f.includes?("trunc") }.should be_false
     end
 
     it "adds transcode filters when scaling, aspect, or pixel format normalization is needed" do

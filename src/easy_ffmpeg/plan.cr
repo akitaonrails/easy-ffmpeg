@@ -136,8 +136,17 @@ module EasyFfmpeg
         end
       end
 
-      # 2. Pixel format for h264/h265
+      # 2. Ensure even dimensions for h264/h265 (required by libx264/libx265)
       if encoder == "libx264" || encoder == "libx265"
+        if @video_filters.none? { |f| f.starts_with?("scale=") }
+          w = stream.width
+          h = stream.height
+          if w && h && (w.odd? || h.odd?)
+            @video_filters << "scale=trunc(iw/2)*2:trunc(ih/2)*2"
+          end
+        end
+
+        # Pixel format
         pix = stream.pix_fmt
         if pix && !%w[yuv420p yuv420p10le].includes?(pix)
           @video_filters << "format=yuv420p"
