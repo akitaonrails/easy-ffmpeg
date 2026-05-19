@@ -162,7 +162,8 @@ module EasyFfmpeg
                                fps : Int32, preset : Preset,
                                target_format : String, force : Bool,
                                scale : String? = nil, aspect : String? = nil,
-                               crop : Bool = false) : Array(String)
+                               crop : Bool = false, use_gpu : Bool = false,
+                               gpu_quality : GpuSupport::Quality = GpuSupport::Quality::Balanced) : Array(String)
       is_gif = target_format == "gif"
       args = ["-hide_banner", "-v", "error", "-stats_period", "0.5", "-progress", "pipe:1"]
       args << (force ? "-y" : "-n")
@@ -206,28 +207,40 @@ module EasyFfmpeg
       else
         # Video output
         config = PresetConfig.for(preset, target_format)
-        encoder = config.video_codec || CodecSupport::DEFAULT_VIDEO_CODEC[target_format]? || "libx264"
+        cpu_encoder = config.video_codec || CodecSupport::DEFAULT_VIDEO_CODEC[target_format]? || "libx264"
+
+        # GPU swap: codecs without NVENC equivalents (vp9, theora) silently
+        # fall back to CPU.
+        encoder = (use_gpu ? GpuSupport.gpu_encoder_for?(cpu_encoder) : nil) || cpu_encoder
 
         args << "-c:v" << encoder
 
-        if config.force_transcode
-          config.video_args.each { |a| args << a }
-        else
-          # Default quality args
-          case encoder
-          when "libx264"     then args.concat(["-crf", "18", "-preset", "medium"])
-          when "libx265"     then args.concat(["-crf", "20", "-preset", "medium"])
-          when "libvpx-vp9"  then args.concat(["-crf", "24", "-b:v", "0"])
-          when "libsvtav1"   then args.concat(["-crf", "23", "-preset", "6"])
-          end
-        end
+        base_args = if config.force_transcode
+                      config.video_args.dup
+                    else
+                      # Default quality args
+                      case cpu_encoder
+                      when "libx264"     then ["-crf", "18", "-preset", "medium"]
+                      when "libx265"     then ["-crf", "20", "-preset", "medium"]
+                      when "libvpx-vp9"  then ["-crf", "24", "-b:v", "0"]
+                      when "libsvtav1"   then ["-crf", "23", "-preset", "6"]
+                      else                    [] of String
+                      end
+                    end
+
+        encoder_args = if encoder != cpu_encoder
+                         base_args.empty? ? GpuSupport.default_quality_args(encoder, gpu_quality) : GpuSupport.translate_args(base_args, gpu_quality)
+                       else
+                         base_args
+                       end
+        encoder_args.each { |a| args << a }
 
         # Build video filter chain: scale -> format -> aspect
         filters = [] of String
         filters.concat(extra_filters_pre)
 
-        # Pixel format for h264/h265
-        if encoder == "libx264" || encoder == "libx265"
+        # Pixel format for h264/h265 (and NVENC equivalents)
+        if %w[libx264 libx265 h264_nvenc hevc_nvenc].includes?(encoder)
           filters << "format=yuv420p"
         end
 
@@ -259,9 +272,11 @@ module EasyFfmpeg
     def self.run(seq : SequenceInfo, output_path : String, fps : Int32,
                  preset : Preset, target_format : String, force : Bool,
                  scale : String? = nil, aspect : String? = nil,
-                 crop : Bool = false) : Bool
+                 crop : Bool = false, use_gpu : Bool = false,
+                 gpu_quality : GpuSupport::Quality = GpuSupport::Quality::Balanced) : Bool
       args = build_ffmpeg_args(seq, output_path, fps, preset, target_format, force,
-                               scale: scale, aspect: aspect, crop: crop)
+                               scale: scale, aspect: aspect, crop: crop,
+                               use_gpu: use_gpu, gpu_quality: gpu_quality)
       total_duration = seq.frame_count.to_f64 / fps
       start_time = Time.instant
 

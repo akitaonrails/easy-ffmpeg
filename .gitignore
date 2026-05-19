@@ -1,4 +1,7 @@
-/docs/
+# Ignore crystal-doc generated output (HTML/CSS/JS) but keep hand-written
+# markdown docs tracked.
+/docs/*
+!/docs/*.md
 /lib/
 /bin/
 /.shards/

@@ -37,15 +37,20 @@ module EasyFfmpeg
     getter aspect : String?
     getter crop : Bool
     getter overwrite_output : Bool
+    getter use_gpu : Bool
+    getter gpu_quality : GpuSupport::Quality
+    getter? pure_gpu_pipeline : Bool
 
     def initialize(@input, @output_path, @target_format, @preset,
                    @start_time = nil, @end_time = nil, @duration = nil,
                    @scale = nil, @aspect = nil, @crop = false,
-                   @overwrite_output = false)
+                   @overwrite_output = false, @use_gpu = false,
+                   @gpu_quality = GpuSupport::Quality::Balanced)
       @stream_plans = [] of StreamPlan
       @global_args = [] of String
       @video_filters = [] of String
       @is_remux_only = false
+      @pure_gpu_pipeline = false
       build
     end
 
@@ -91,6 +96,44 @@ module EasyFfmpeg
       end
 
       @is_remux_only = stream_plans.all? { |p| p.action.copy? || p.action.drop? }
+      @pure_gpu_pipeline = compute_pure_gpu_pipeline
+      rewrite_filters_for_cuda if @pure_gpu_pipeline
+    end
+
+    # True when frames can stay on the GPU from decode to encode:
+    #   - --gpu was requested
+    #   - at least one video stream is being transcoded, and every transcoded
+    #     video stream goes through an NVENC encoder
+    #   - no aspect filter is requested (crop/pad have no native CUDA filter
+    #     in our build; using them forces the bounce CPU↔GPU)
+    private def compute_pure_gpu_pipeline : Bool
+      return false unless use_gpu
+      return false unless aspect.nil?
+      transcodes = stream_plans.select { |p| p.stream.video? && p.action.transcode? }
+      return false if transcodes.empty?
+      transcodes.all? { |p| p.encoder.try(&.ends_with?("_nvenc")) || false }
+    end
+
+    # In pure GPU mode the decoder hands us CUDA surfaces; CPU-side filters
+    # like `scale` and `format` would force a round-trip through system
+    # memory. Translate them to their CUDA equivalents (or drop them when
+    # NVENC handles the work natively).
+    private def rewrite_filters_for_cuda
+      @video_filters = @video_filters.compact_map do |filter|
+        case
+        when filter.starts_with?("scale=")
+          filter.sub("scale=", "scale_cuda=")
+        when filter.starts_with?("yadif=") || filter == "yadif"
+          # yadif_cuda accepts the same mode/parity/deint syntax as yadif.
+          filter.sub("yadif", "yadif_cuda")
+        when filter == "format=yuv420p"
+          # NVENC will emit yuv420p (8-bit) by default for h264_nvenc and
+          # hevc_nvenc, so we can drop the explicit format conversion.
+          nil
+        else
+          filter
+        end
+      end
     end
 
     private def plan_video_streams(config : PresetConfig)
@@ -113,12 +156,45 @@ module EasyFfmpeg
     end
 
     private def plan_video_transcode(stream : StreamInfo, config : PresetConfig)
-      encoder = config.video_codec || CodecSupport::DEFAULT_VIDEO_CODEC[target_format]? || "libx264"
-      args = if config.force_transcode
-               config.video_args.dup
+      cpu_encoder = config.video_codec || CodecSupport::DEFAULT_VIDEO_CODEC[target_format]? || "libx264"
+
+      # GPU swap: replace cpu encoder with NVENC equivalent when available.
+      # Codecs without NVENC equivalents (e.g. libvpx-vp9) silently fall back to CPU.
+      encoder = (use_gpu ? GpuSupport.gpu_encoder_for?(cpu_encoder) : nil) || cpu_encoder
+
+      base_args = if config.force_transcode
+                    config.video_args.dup
+                  else
+                    default_quality_args(cpu_encoder)
+                  end
+
+      args = if encoder != cpu_encoder
+               base_args.empty? ? GpuSupport.default_quality_args(encoder, gpu_quality) : GpuSupport.translate_args(base_args, gpu_quality)
              else
-               default_quality_args(encoder)
+               base_args
              end
+
+      # HDR preservation: when the source carries PQ/HLG transfer metadata
+      # and we're encoding through hevc_nvenc (the only NVENC encoder with
+      # solid HDR support), propagate the color metadata so the output is
+      # tagged correctly. The 10-bit bit depth is inherited automatically
+      # from the input surface — hevc_nvenc picks Main 10 profile when fed
+      # 10-bit frames, so setting -pix_fmt explicitly would conflict with
+      # CUDA hwaccel surfaces.
+      preserve_hdr = stream.hdr? && encoder == "hevc_nvenc"
+      if preserve_hdr
+        args << "-color_primaries" << (stream.color_primaries || "bt2020")
+        args << "-color_trc" << (stream.color_transfer || "smpte2084")
+        args << "-colorspace" << (stream.color_space || "bt2020nc")
+        args << "-color_range" << (stream.color_range || "tv")
+      end
+
+      # 0. Deinterlace (must come first so downstream filters see progressive
+      # frames). yadif here gets rewritten to yadif_cuda later when the pure
+      # GPU pipeline is engaged.
+      if stream.interlaced?
+        @video_filters << "yadif=0:-1:0"
+      end
 
       # 1. Scale filter (--scale overrides preset max_height)
       if s = scale
@@ -136,8 +212,9 @@ module EasyFfmpeg
         end
       end
 
-      # 2. Ensure even dimensions for h264/h265 (required by libx264/libx265)
-      if encoder == "libx264" || encoder == "libx265"
+      # 2. Ensure even dimensions for h264/h265 (required by libx264/libx265 and
+      # their NVENC equivalents)
+      if %w[libx264 libx265 h264_nvenc hevc_nvenc].includes?(encoder)
         if @video_filters.none? { |f| f.starts_with?("scale=") }
           w = stream.width
           h = stream.height
@@ -146,10 +223,13 @@ module EasyFfmpeg
           end
         end
 
-        # Pixel format
-        pix = stream.pix_fmt
-        if pix && !%w[yuv420p yuv420p10le].includes?(pix)
-          @video_filters << "format=yuv420p"
+        # Pixel format. Skip when preserving HDR — we encode straight to
+        # p010le (10-bit) and forcing yuv420p would throw away the bit depth.
+        unless preserve_hdr
+          pix = stream.pix_fmt
+          if pix && !%w[yuv420p yuv420p10le].includes?(pix)
+            @video_filters << "format=yuv420p"
+          end
         end
       end
 

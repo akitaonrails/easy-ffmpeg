@@ -15,6 +15,11 @@ module EasyFfmpeg
     getter sample_rate : Int32?
     getter profile : String?
     getter pix_fmt : String?
+    getter color_primaries : String?
+    getter color_transfer : String?
+    getter color_space : String?
+    getter color_range : String?
+    getter field_order : String?
     getter language : String?
     getter title : String?
     getter is_default : Bool
@@ -25,9 +30,29 @@ module EasyFfmpeg
       @width = nil, @height = nil, @frame_rate = nil,
       @bit_rate = nil, @channels = nil, @channel_layout = nil,
       @sample_rate = nil, @profile = nil, @pix_fmt = nil,
+      @color_primaries = nil, @color_transfer = nil,
+      @color_space = nil, @color_range = nil,
+      @field_order = nil,
       @language = nil, @title = nil, @is_default = false,
       @is_attached_pic = false
     )
+    end
+
+    # True when the stream carries HDR transfer metadata that we want to
+    # preserve through transcode (HDR10 / HDR10+ via PQ, or HLG).
+    def hdr? : Bool
+      ct = color_transfer
+      return false unless ct
+      ct == "smpte2084" || ct == "arib-std-b67"
+    end
+
+    # True when ffprobe reports an interlaced field order. Anything other
+    # than "progressive" (or missing entirely) means we'd benefit from a
+    # deinterlace filter before encoding.
+    def interlaced? : Bool
+      fo = field_order
+      return false unless fo
+      fo != "progressive" && fo != "unknown"
     end
 
     def video? : Bool
@@ -207,6 +232,11 @@ module EasyFfmpeg
         sample_rate: json_int(s["sample_rate"]?),
         profile: json_string(s["profile"]?),
         pix_fmt: json_string(s["pix_fmt"]?),
+        color_primaries: json_string(s["color_primaries"]?),
+        color_transfer: json_string(s["color_transfer"]?),
+        color_space: json_string(s["color_space"]?),
+        color_range: json_string(s["color_range"]?),
+        field_order: json_string(s["field_order"]?),
         language: json_string(tags.try(&.["language"]?)),
         title: json_string(tags.try(&.["title"]?)),
         is_default: (json_int(disposition.try(&.["default"]?)) == 1),
