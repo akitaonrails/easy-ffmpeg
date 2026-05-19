@@ -1,0 +1,13 @@
+.git
+.gitignore
+bin/
+lib/
+.crystal/
+*.dwarf
+.vscode/
+.idea/
+.DS_Store
+Dockerfile
+.dockerignore
+README.md
+LICENSE

@@ -22,6 +22,8 @@ module EasyFfmpeg
       scale : String? = nil
       aspect : String? = nil
       crop = false
+      use_gpu = false
+      gpu_quality = GpuSupport::Quality::Balanced
       input_path : String? = nil
       target_ext : String? = nil
 
@@ -78,6 +80,17 @@ module EasyFfmpeg
           aspect = a
         end
         parser.on("--crop", "Crop to aspect ratio instead of padding") { crop = true }
+        parser.on("--gpu", "Use NVIDIA NVENC for H.264/H.265/AV1 transcodes") { use_gpu = true }
+        parser.on("--gpu-quality MODE", "NVENC mode: fast | balanced (default) | smaller (requires --gpu)") do |m|
+          case m.downcase
+          when "fast"     then gpu_quality = GpuSupport::Quality::Fast
+          when "balanced" then gpu_quality = GpuSupport::Quality::Balanced
+          when "smaller"  then gpu_quality = GpuSupport::Quality::Smaller
+          else
+            Display.show_error("invalid --gpu-quality value: '#{m}'. Use: fast | balanced | smaller")
+            exit 1
+          end
+        end
         parser.on("-o PATH", "--output=PATH", "Custom output file path") { |p| custom_output = p }
         parser.on("--dry-run", "Print ffmpeg command without executing") { dry_run = true }
         parser.on("--force", "Overwrite output file if it exists") { force = true }
@@ -109,6 +122,12 @@ module EasyFfmpeg
         exit 1
       end
 
+      # Validate --gpu-quality requires --gpu
+      if gpu_quality != GpuSupport::Quality::Balanced && !use_gpu
+        Display.show_error("--gpu-quality requires --gpu")
+        exit 1
+      end
+
       # Validate input
       unless input = input_path
         Display.show_error("missing input file. Run with -h for help.")
@@ -130,7 +149,7 @@ module EasyFfmpeg
         end
 
         run_image_sequence(input, ext, fps_override, preset, custom_output, dry_run, force,
-                           scale, aspect, crop)
+                           scale, aspect, crop, use_gpu, gpu_quality)
         return
       end
 
@@ -174,6 +193,13 @@ module EasyFfmpeg
       end
       unless check_command("ffprobe")
         Display.show_error("ffprobe not found. Please install ffmpeg.")
+        exit 1
+      end
+
+      # Validate --gpu against the local ffmpeg build
+      if use_gpu && !GpuSupport.any_available?
+        Display.show_error("--gpu requested but no NVENC encoders found in this ffmpeg build")
+        STDERR.puts "  Build ffmpeg with --enable-nvenc or install an NVIDIA-enabled package."
         exit 1
       end
 
@@ -228,7 +254,8 @@ module EasyFfmpeg
       # Build conversion plan
       plan = ConversionPlan.new(info, dest, target_format, preset,
         start_time: start_time, end_time: end_time, duration: duration,
-        scale: scale, aspect: aspect, crop: crop, overwrite_output: force)
+        scale: scale, aspect: aspect, crop: crop, overwrite_output: force,
+        use_gpu: use_gpu, gpu_quality: gpu_quality)
 
       # Apply --no-subs: override subtitle plans to Drop
       if no_subs
@@ -263,7 +290,8 @@ module EasyFfmpeg
     private def self.run_image_sequence(input : String, ext : String, fps_override : Int32?,
                                         preset : Preset, custom_output : String?,
                                         dry_run : Bool, force : Bool,
-                                        scale : String?, aspect : String?, crop : Bool)
+                                        scale : String?, aspect : String?, crop : Bool,
+                                        use_gpu : Bool, gpu_quality : GpuSupport::Quality)
       is_gif = ext == ".gif"
 
       unless is_gif || CodecSupport.supported_output_format?(ext)
@@ -292,6 +320,17 @@ module EasyFfmpeg
         exit 1
       end
 
+      if use_gpu && is_gif
+        Display.show_error("--gpu has no effect on GIF output")
+        exit 1
+      end
+
+      if use_gpu && !GpuSupport.any_available?
+        Display.show_error("--gpu requested but no NVENC encoders found in this ffmpeg build")
+        STDERR.puts "  Build ffmpeg with --enable-nvenc or install an NVIDIA-enabled package."
+        exit 1
+      end
+
       seq = begin
         ImageSequence.scan(input)
       rescue ex
@@ -314,17 +353,20 @@ module EasyFfmpeg
       end
 
       Display.show_image_sequence_info(seq, dest, fps, preset, target_format,
-                                       scale: scale, aspect: aspect, crop: crop)
+                                       scale: scale, aspect: aspect, crop: crop,
+                                       use_gpu: use_gpu)
 
       if dry_run
         args = ImageSequence.build_ffmpeg_args(seq, dest, fps, preset, target_format, force,
-                                               scale: scale, aspect: aspect, crop: crop)
+                                               scale: scale, aspect: aspect, crop: crop,
+                                               use_gpu: use_gpu, gpu_quality: gpu_quality)
         Display.show_dry_run(args)
         exit 0
       end
 
       success = ImageSequence.run(seq, dest, fps, preset, target_format, force,
-                                   scale: scale, aspect: aspect, crop: crop)
+                                   scale: scale, aspect: aspect, crop: crop,
+                                   use_gpu: use_gpu, gpu_quality: gpu_quality)
       exit(success ? 0 : 1)
     end
 
@@ -375,6 +417,9 @@ module EasyFfmpeg
       puts ""
       puts "  # Crop to square"
       puts "  easy-ffmpeg movie.mkv mp4 --aspect square --crop"
+      puts ""
+      puts "  # Hardware-accelerated encode using NVIDIA NVENC"
+      puts "  easy-ffmpeg movie.mkv mp4 --compress --gpu"
       puts ""
       puts "  # Preview the ffmpeg command without running it"
       puts "  easy-ffmpeg movie.mkv mp4 --web --dry-run"

@@ -14,6 +14,23 @@ module EasyFfmpeg
         args << "-ss" << format_ffmpeg_time(ss)
       end
 
+      # Hardware-accelerated decode. Two tiers:
+      #
+      #   pure_gpu_pipeline?  → `-hwaccel cuda -hwaccel_output_format cuda`
+      #     Decoded surfaces stay on the GPU. Filters are CUDA-aware
+      #     (scale_cuda, no format conversion). NVENC reads directly from
+      #     CUDA memory. Best throughput.
+      #
+      #   uses_nvenc_transcode? (only) → `-hwaccel cuda`
+      #     Decode runs on the GPU but frames are downloaded to system memory
+      #     so the CPU filter chain (crop / pad) can run. NVENC re-uploads
+      #     them at the encode step. Still faster than software decode.
+      if plan.pure_gpu_pipeline?
+        args << "-hwaccel" << "cuda" << "-hwaccel_output_format" << "cuda"
+      elsif uses_nvenc_transcode?
+        args << "-hwaccel" << "cuda"
+      end
+
       args << "-i" << plan.input.path
 
       # Trim: -to / -t after -i (relative to start)
@@ -77,6 +94,17 @@ module EasyFfmpeg
 
       args << plan.output_path
       args
+    end
+
+    # True when --gpu was requested AND at least one video stream is being
+    # transcoded by an NVENC encoder. Guards against enabling hwaccel for
+    # remux-only jobs or CPU-fallback transcodes (e.g. webm -> libvpx-vp9 with
+    # --gpu), where -hwaccel cuda would be wasted or actively harmful.
+    private def uses_nvenc_transcode? : Bool
+      return false unless plan.use_gpu
+      plan.video_plans.any? do |sp|
+        sp.action.transcode? && (sp.encoder.try(&.ends_with?("_nvenc")) || false)
+      end
     end
 
     private def format_ffmpeg_time(seconds : Float64) : String

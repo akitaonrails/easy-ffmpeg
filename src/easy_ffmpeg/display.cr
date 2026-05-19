@@ -216,7 +216,7 @@ module EasyFfmpeg
     def self.show_image_sequence_info(seq : ImageSequence::SequenceInfo, output_path : String,
                                       fps : Int32, preset : Preset, target_format : String,
                                       scale : String? = nil, aspect : String? = nil,
-                                      crop : Bool = false)
+                                      crop : Bool = false, use_gpu : Bool = false)
       puts ""
       label("Input", "#{File.basename(seq.directory.rstrip("/"))}/ (#{seq.frame_count} frames, #{EasyFfmpeg.format_file_size(seq.total_size)})")
       label("Images", "#{seq.extension.lstrip('.')} #{seq.width}x#{seq.height}")
@@ -231,7 +231,8 @@ module EasyFfmpeg
         label("Encode", "GIF (palette-optimized)")
       else
         config = PresetConfig.for(preset, target_format)
-        encoder = config.video_codec || CodecSupport::DEFAULT_VIDEO_CODEC[target_format]? || "libx264"
+        cpu_encoder = config.video_codec || CodecSupport::DEFAULT_VIDEO_CODEC[target_format]? || "libx264"
+        encoder = (use_gpu ? GpuSupport.gpu_encoder_for?(cpu_encoder) : nil) || cpu_encoder
         preset_label = preset.default? ? "" : " (--#{preset.to_s.downcase})"
         label("Encode", "#{CodecSupport.codec_display_name(encoder)}#{preset_label}")
       end

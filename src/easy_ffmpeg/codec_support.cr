@@ -127,6 +127,9 @@ module EasyFfmpeg
       "libvorbis"           => "Vorbis",
       "libmp3lame"          => "MP3",
       "libtheora"           => "Theora",
+      "h264_nvenc"          => "H.264/AVC (NVENC)",
+      "hevc_nvenc"          => "H.265/HEVC (NVENC)",
+      "av1_nvenc"           => "AV1 (NVENC)",
     }
 
     def self.format_for_ext(ext : String) : String?
