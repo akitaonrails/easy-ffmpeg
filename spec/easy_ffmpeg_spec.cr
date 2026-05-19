@@ -242,6 +242,49 @@ describe EasyFfmpeg do
       gpu.should contain("-rc")
       gpu[gpu.index!("-rc") + 1].should eq("vbr")
     end
+
+    it "drops -level when translating to NVENC" do
+      cpu = ["-crf", "26", "-preset", "medium", "-profile:v", "main", "-level", "3.1"]
+      gpu = EasyFfmpeg::GpuSupport.translate_args(cpu)
+
+      gpu.should_not contain("-level")
+      gpu.should_not contain("3.1")
+      gpu.should contain("-profile:v")
+      gpu[gpu.index!("-profile:v") + 1].should eq("main")
+    end
+  end
+
+  describe "ConversionPlan with --mobile --gpu" do
+    it "does not emit -level on the NVENC encoder args" do
+      EasyFfmpeg::GpuSupport.stub_encoders!(["h264_nvenc", "hevc_nvenc"])
+      info = build_media_info(video_codec: "h264", video_width: 1920, video_height: 816)
+
+      plan = EasyFfmpeg::ConversionPlan.new(
+        info, "out.mp4", "mp4", EasyFfmpeg::Preset::Mobile, use_gpu: true,
+      )
+      args = plan.video_plans.first.encoder_args
+
+      plan.video_plans.first.encoder.should eq("h264_nvenc")
+      args.should_not contain("-level")
+    ensure
+      EasyFfmpeg::GpuSupport.reset_cache!
+    end
+
+    it "still emits -level on the CPU --mobile path" do
+      EasyFfmpeg::GpuSupport.stub_encoders!(["h264_nvenc", "hevc_nvenc"])
+      info = build_media_info(video_codec: "h264", video_width: 1920, video_height: 816)
+
+      plan = EasyFfmpeg::ConversionPlan.new(
+        info, "out.mp4", "mp4", EasyFfmpeg::Preset::Mobile,
+      )
+      args = plan.video_plans.first.encoder_args
+
+      plan.video_plans.first.encoder.should eq("libx264")
+      args.should contain("-level")
+      args[args.index!("-level") + 1].should eq("3.1")
+    ensure
+      EasyFfmpeg::GpuSupport.reset_cache!
+    end
   end
 
   describe "ConversionPlan with --gpu" do

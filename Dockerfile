@@ -99,8 +99,9 @@ COPY shard.lock* ./
 RUN shards install --production || true
 
 COPY . .
+# --single-module: works around Crystal 1.20.2 codegen crash.
 RUN mkdir -p bin \
-    && crystal build src/easy_ffmpeg_cli.cr -o bin/easy-ffmpeg --release --no-debug
+    && crystal build src/easy_ffmpeg_cli.cr -o bin/easy-ffmpeg --release --no-debug --single-module
 
 # =============================================================================
 # Stage 3 — Final runtime image (as requested).

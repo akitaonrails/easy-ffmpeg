@@ -114,7 +114,9 @@ module EasyFfmpeg
     # Translate CPU encoder args (-crf/-preset/etc.) to NVENC equivalents.
     # -crf N         → -cq (N + CQ_OFFSET_FOR_QUALITY[quality]) -b:v 0
     # -preset *      → -preset PRESET_FOR_QUALITY[quality]
-    # Other args (-profile:v, -level, -g, -keyint_min) pass through unchanged.
+    # -level *       → dropped (NVENC strictly enforces level vs output
+    #                  dimensions; let it auto-select to avoid crashes).
+    # Other args (-profile:v, -g, -keyint_min) pass through unchanged.
     def self.translate_args(cpu_args : Array(String),
                             quality : Quality = Quality::Balanced) : Array(String)
       out = [] of String
@@ -138,6 +140,8 @@ module EasyFfmpeg
             out << cpu_args[i]
             i += 1
           end
+        when "-level"
+          i += cpu_args[i + 1]? ? 2 : 1
         else
           out << cpu_args[i]
           i += 1
